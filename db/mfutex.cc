@@ -20,7 +20,7 @@ void inline __sl_acquire(int *sl) {
 
 void inline  __sl_release(int * spinlock)
 {
-  //__sync_synchronize();
+  __sync_synchronize();
   *spinlock = 0;
   __asm__ __volatile__ ("" : "=m" (*spinlock) : "m" (*spinlock));
 }
@@ -161,7 +161,7 @@ futex_wait(uint64_t *uaddr, uint64_t val, const struct timespec *timeout,
 	// }
 
 	__sync_synchronize();
-	printf("Thread %p; tsc: %llu; futex_WAIT\n", thread_self(), __builtin_ia32_rdtsc());
+	// printf("Thread %p; tsc: %llu; futex_WAIT\n", thread_self(), __builtin_ia32_rdtsc());
 	register_waiter(f, t_descr);
 	//__sync_synchronize();
 
@@ -255,7 +255,7 @@ futex_requeue(uint64_t *uaddr, uint64_t n, uint64_t *uaddr2, uint64_t m,
 			// //printf("Derefed, tID=%llu\n", thread);
 			// next = current->next;
 			// //printf("Pointer of next %p\n", next);
-			printf("Wake...%p\n", thr);
+			// printf("Wake...%p\n", thr);
 			//__sync_synchronize();
 			restart(thr);
 			//__sync_synchronize();
