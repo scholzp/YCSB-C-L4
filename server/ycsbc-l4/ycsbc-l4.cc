@@ -8,6 +8,7 @@
 //
 
 #include <cstring>
+#include <map>
 #include <string>
 #include <iostream>
 #include <sstream>
@@ -59,10 +60,32 @@ static int DelegateClient(ycsbc::DB *db, ycsbc::CoreWorkload *wl,
   db->Close(ctx);
   return oks;
 }
+void print_results(std::map<size_t, std::vector<float>> &results, size_t iterations, bool print_csv){
+  cerr << "# Transaction throughput (KTPS)" << endl;
+  if (true == print_csv) {
+    for(auto it = results.begin(); it != results.end(); ++it) {
+      std::cout << it->first << ",";
+      for(auto time = it->second.begin(); time != it->second.end(); ++time) {
+        std::cout << *time << ",";
+      }
+      std::cout << std::endl;
+    }
+  } else {
+    for(auto it = results.begin(); it != results.end(); ++it) {
+      std::cout << it->first << ": ";
+      for(auto time = it->second.begin(); time != it->second.end(); ++time) {
+          std::cout << *time << " | ";
+      }
+      std::cout << std::endl;
+    }
+  }
+
+}
 
 int main(const int argc, const char *argv[]) {
   utils::Properties props;
   string file_name = ParseCommandLine(argc, argv, props);
+  std::map<size_t, std::vector<float>> results_map;
 
   cout << "Starting YCSB benchmark..." << endl;
   cout << "==========================" << endl << endl;
@@ -113,6 +136,16 @@ int main(const int argc, const char *argv[]) {
                        cpus[(2 * i + 1) % cpus.size()]);
     };
 
+  size_t iterations;
+  istringstream(props.GetProperty("iterations", "1")) >> iterations;
+  cout << "# Iterations: " << iterations << endl; 
+
+  bool output_csv = false;
+  istringstream(props.GetProperty("csv", "0")) >> output_csv;
+
+  bool up_to = false;
+  istringstream(props.GetProperty("up-to", "0")) >> up_to;
+
   // Loads data
   vector<future<int>> actual_ops;
   int total_ops = stoi(props[ycsbc::CoreWorkload::RECORD_COUNT_PROPERTY]);
@@ -134,28 +167,38 @@ int main(const int argc, const char *argv[]) {
   cerr << "# Loading records:\t" << sum << endl;
 
   // Peforms transactions
-  actual_ops.clear();
-  total_ops = stoi(props[ycsbc::CoreWorkload::OPERATION_COUNT_PROPERTY]);
-  utils::Timer<double> timer;
-  timer.Start();
-  for (int i = 0; i < num_threads; ++i) {
-    auto selected_cpus = select_cpus(cpus, i);
-    actual_ops.emplace_back(async(launch::async,
-        DelegateClient, db, &wl, total_ops / num_threads, false,
-        selected_cpus.first, selected_cpus.second));
-  }
-  assert((int)actual_ops.size() == num_threads);
+  std::vector<float> results;
+  for (size_t current_tc = 0; current_tc < num_threads; ++current_tc) {
+    if (0 == up_to)
+      current_tc = num_threads;    
+    for (size_t i = 0; i < iterations; ++i) {
+      actual_ops.clear();
+      total_ops = stoi(props[ycsbc::CoreWorkload::OPERATION_COUNT_PROPERTY]);
+      utils::Timer<double> timer;
+      timer.Start();
+      for (int i = 0; i < num_threads; ++i) {
+        auto selected_cpus = select_cpus(cpus, i);
+        actual_ops.emplace_back(async(launch::async,
+            DelegateClient, db, &wl, total_ops / num_threads, false,
+            selected_cpus.first, selected_cpus.second));
+      }
+      assert((int)actual_ops.size() == num_threads);
 
-  sum = 0;
-  for (auto &n : actual_ops) {
-    assert(n.valid());
-    sum += n.get();
+      sum = 0;
+      for (auto &n : actual_ops) {
+        assert(n.valid());
+        sum += n.get();
+      }
+      double duration = timer.End();
+      results.push_back(total_ops / duration / 1000);
+    }
+    results_map.emplace(current_tc + 1, results);
+    results.clear();
   }
-  double duration = timer.End();
-  cerr << "# Transaction throughput (KTPS)" << endl;
+
   cerr << props["dbname"] << '\t' << file_name << '\t' << num_threads << '\t';
-  cerr << total_ops / duration / 1000 << endl;
-
+  print_results(results_map, iterations, output_csv);
+  cout << "Exiting..." << endl;
   return 0;
 }
 
@@ -203,6 +246,14 @@ string ParseCommandLine(int argc, const char *argv[], utils::Properties &props) 
       }
       props.SetProperty("slaves", argv[argindex]);
       argindex++;
+    } else if (strcmp(argv[argindex], "-iterations") == 0) {
+      argindex++;
+      if (argindex >= argc) {
+        UsageMessage(argv[0]);
+        exit(0);
+      }
+      props.SetProperty("iterations", argv[argindex]);
+      argindex++;
     } else if (strcmp(argv[argindex], "-P") == 0) {
       argindex++;
       if (argindex >= argc) {
@@ -228,6 +279,12 @@ string ParseCommandLine(int argc, const char *argv[], utils::Properties &props) 
     } else if (strcmp(argv[argindex], "-disperse") == 0) {
       argindex++;
       props.SetProperty("disperse", "1");
+    } else if (strcmp(argv[argindex], "-csv-output") == 0) {
+      argindex++;
+      props.SetProperty("csv", "1");
+    } else if (strcmp(argv[argindex], "-thread-count-up-to") == 0) {
+      argindex++;
+      props.SetProperty("up-to", "1");
     } else {
       cout << "Unknown option '" << argv[argindex] << "'" << endl;
       exit(0);
