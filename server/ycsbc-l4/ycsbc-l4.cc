@@ -168,7 +168,7 @@ int main(const int argc, const char *argv[]) {
 
   // Peforms transactions
   std::vector<float> results;
-  for (size_t current_tc = 0; current_tc < num_threads; ++current_tc) {
+  for (size_t current_tc = 1; current_tc < (num_threads +1) ; ++current_tc) {
     if (0 == up_to)
       current_tc = num_threads;    
     for (size_t i = 0; i < iterations; ++i) {
@@ -176,13 +176,13 @@ int main(const int argc, const char *argv[]) {
       total_ops = stoi(props[ycsbc::CoreWorkload::OPERATION_COUNT_PROPERTY]);
       utils::Timer<double> timer;
       timer.Start();
-      for (int i = 0; i < num_threads; ++i) {
+      for (int i = 0; i < current_tc; ++i) {
         auto selected_cpus = select_cpus(cpus, i);
         actual_ops.emplace_back(async(launch::async,
-            DelegateClient, db, &wl, total_ops / num_threads, false,
+            DelegateClient, db, &wl, total_ops / current_tc, false,
             selected_cpus.first, selected_cpus.second));
       }
-      assert((int)actual_ops.size() == num_threads);
+      assert((int)actual_ops.size() == current_tc);
 
       sum = 0;
       for (auto &n : actual_ops) {
@@ -192,7 +192,7 @@ int main(const int argc, const char *argv[]) {
       double duration = timer.End();
       results.push_back(total_ops / duration / 1000);
     }
-    results_map.emplace(current_tc + 1, results);
+    results_map.emplace(current_tc, results);
     results.clear();
   }
 
